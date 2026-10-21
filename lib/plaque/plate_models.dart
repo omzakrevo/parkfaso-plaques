@@ -175,9 +175,19 @@ class ParkingSession {
     this.plateOcrRawText,
     this.platePhotoPath,
     this.exitedAt,
+    this.parkingId,
+    this.enteredBy,
+    this.exitedBy,
   });
 
   final int? id;
+
+  /// Parking concerné (mode multi-parkings).
+  final String? parkingId;
+
+  /// Gardien qui a enregistré l'entrée / validé la sortie.
+  final String? enteredBy;
+  final String? exitedBy;
   final VehicleType vehicleType;
 
   /// Numéro de base du ticket, ex. « PK-000125 » (suffixes -C, -M, -H1…).
@@ -212,7 +222,9 @@ class ParkingSession {
         'plate_verified': plateVerified ? 1 : 0,
       };
 
-  ParkingSession copyWith({int? id, DateTime? exitedAt}) => ParkingSession(
+  Duration stayAt(DateTime now) => (exitedAt ?? now).difference(enteredAt);
+
+  ParkingSession copyWith({int? id, DateTime? exitedAt, String? exitedBy}) => ParkingSession(
         id: id ?? this.id,
         vehicleType: vehicleType,
         ticketBase: ticketBase,
@@ -226,5 +238,8 @@ class ParkingSession {
         plateOcrRawText: plateOcrRawText,
         platePhotoPath: platePhotoPath,
         exitedAt: exitedAt ?? this.exitedAt,
+        parkingId: parkingId,
+        enteredBy: enteredBy,
+        exitedBy: exitedBy ?? this.exitedBy,
       );
 }

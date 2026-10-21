@@ -65,8 +65,8 @@ abstract class SessionRepository {
   /// Retrouve une session par son numéro de base (« PK-000125 »).
   Future<ParkingSession?> findByTicket(String ticketBase);
 
-  /// Enregistre la sortie du véhicule.
-  Future<void> markExited(int id, DateTime at);
+  /// Enregistre la sortie du véhicule ([by] : gardien qui valide).
+  Future<void> markExited(int id, DateTime at, {String? by});
 }
 
 /// Noms des colonnes déjà présentes dans votre table des sessions.
@@ -150,7 +150,7 @@ class SqfliteSessionRepository implements SessionRepository {
   }
 
   @override
-  Future<void> markExited(int id, DateTime at) async {
+  Future<void> markExited(int id, DateTime at, {String? by}) async {
     await db.update(table, {'exited_at': at.toIso8601String()},
         where: '${columns.id} = ?', whereArgs: [id]);
   }

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PARKFASO · Licences</title>
+<meta name="robots" content="noindex">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tweetnacl/1.0.3/nacl-fast.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root { --navy:#0E3A5B; --navy2:#1B5E8C; --amber:#F2A900; --green:#16A34A; --red:#DC2626;
+          --bg:#F3F5F9; --line:#E3E7EE; --muted:#6B7280; --ink:#111827; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:linear-gradient(120deg,#082338,var(--navy),var(--navy2)); color:#fff; padding:22px 16px 26px; }
+  header h1 { margin:0; font-size:22px; } header p { margin:6px 0 0; opacity:.8; font-size:14px; }
+  main { max-width:760px; margin:-14px auto 40px; padding:0 16px; display:grid; gap:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:16px; }
+  h2 { font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
+  label { display:block; font-size:13px; font-weight:600; margin:10px 0 4px; }
+  input, select, textarea { width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; background:#fff; }
+  textarea { font-family:ui-monospace,Consolas,monospace; font-size:12px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  button { border:0; border-radius:10px; padding:11px 16px; font:inherit; font-weight:700; cursor:pointer; background:var(--navy); color:#fff; }
+  button.amber { background:var(--amber); color:#082338; } button.ghost { background:#fff; color:var(--navy); border:1px solid var(--line); }
+  button.red { background:var(--red); }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+  .ok { color:var(--green); font-weight:700; } .err { color:var(--red); font-weight:700; }
+  .muted { color:var(--muted); font-size:13px; }
+  #qr { display:flex; justify-content:center; padding:12px; background:#fff; }
+  table { width:100%; border-collapse:collapse; font-size:13px; } td, th { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:800; }
+  .pill.on { background:#DCFCE7; color:var(--green); } .pill.off { background:#FEE2E2; color:var(--red); }
+  @media (max-width:520px) { .row { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>PARKFASO · Gestion des licences</h1>
+  <p>Créez une licence signée pour un client, ou révoquez une licence. Aucune base de données : tout passe par GitHub.</p>
+</header>
+<main>
+
+<section class="card">
+  <h2>1. Clé privée de signature</h2>
+  <p class="muted">Collez la clé privée OMZAKREVO (fichier <code>parkfaso_cle_privee.txt</code>). Elle reste dans ce navigateur et n'est jamais envoyée.</p>
+  <label for="seed">Clé privée (base64)</label>
+  <input id="seed" type="password" autocomplete="off" placeholder="••••••••••••">
+  <label style="display:flex;gap:8px;align-items:center;font-weight:500"><input id="remember" type="checkbox" style="width:auto"> Mémoriser sur cet ordinateur</label>
+  <div id="keyStatus" class="muted"></div>
+</section>
+
+<section class="card">
+  <h2>2. Nouvelle licence</h2>
+  <label for="client">Client</label>
+  <input id="client" placeholder="Ex. Parkings Ouédraogo — Ouagadougou">
+  <div class="row">
+    <div><label for="parkings">Nombre de parkings</label><input id="parkings" type="number" min="1" value="1"></div>
+    <div><label for="duree">Durée</label>
+      <select id="duree">
+        <option value="1">1 mois</option><option value="3">3 mois</option><option value="6">6 mois</option>
+        <option value="12" selected>1 an</option><option value="24">2 ans</option><option value="0">Illimitée</option>
+      </select></div>
+  </div>
+  <div class="actions"><button class="amber" id="gen">Générer la licence</button></div>
+  <div id="result" style="display:none;margin-top:14px">
+    <label>Licence à envoyer au client</label>
+    <textarea id="key" rows="4" readonly></textarea>
+    <div id="summary" class="muted" style="margin:8px 0"></div>
+    <div id="qr"></div>
+    <div class="actions">
+      <button id="copy">Copier</button>
+      <a id="wa" target="_blank"><button class="ghost" type="button">Envoyer par WhatsApp</button></a>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>3. Licences émises (sur cet ordinateur)</h2>
+  <table><thead><tr><th>ID</th><th>Client</th><th>Parkings</th><th>Expire</th><th>État</th></tr></thead><tbody id="issued"></tbody></table>
+  <div class="actions"><button class="ghost" id="exportIssued">Sauvegarder la liste (JSON)</button></div>
+</section>
+
+<section class="card">
+  <h2>4. Révocation</h2>
+  <p class="muted">Une licence révoquée est refusée par l'application dès qu'elle se connecte à Internet (vérification quotidienne).
+    Il faut un jeton GitHub « fine-grained » limité au dépôt <b>omzakrevo/parkfaso-plaques</b>, permission « Contents : Read and write ».</p>
+  <label for="token">Jeton GitHub</label>
+  <input id="token" type="password" placeholder="github_pat_…">
+  <div class="row">
+    <div><label for="revId">ID de la licence</label><input id="revId" placeholder="L20261021-ABC"></div>
+    <div><label for="revNote">Motif (facultatif)</label><input id="revNote" placeholder="Non-paiement"></div>
+  </div>
+  <div class="actions"><button class="red" id="revoke">Révoquer</button><button class="ghost" id="loadRev">Actualiser la liste</button></div>
+  <div id="revMsg" class="muted" style="margin-top:8px"></div>
+  <ul id="revList" class="muted"></ul>
+</section>
+
+</main>
+<script>
+const PUBLIC_KEY = 'JWxlKDtnSsFuvf0FCQLqPkYkr8uCgM0BRsphKJciOhQ=';
+const REPO = 'omzakrevo/parkfaso-plaques', PATH = 'licences/revoquees.json';
+const $ = id => document.getElementById(id);
+const b64 = { dec: s => Uint8Array.from(atob(s), c => c.charCodeAt(0)),
+              enc: u => btoa(String.fromCharCode(...u)) };
+const b64url = u => b64.enc(u).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const utf8 = s => new TextEncoder().encode(s);
+const pad = n => String(n).padStart(2,'0');
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const fr = s => s ? s.split('-').reverse().join('/') : 'jamais';
+
+function keyPair() {
+  const seed = b64.dec($('seed').value.trim());
+  if (seed.length !== 32) throw new Error('Clé privée invalide (32 octets attendus).');
+  const kp = nacl.sign.keyPair.fromSeed(seed);
+  if (b64.enc(kp.publicKey) !== PUBLIC_KEY) throw new Error('Cette clé privée ne correspond pas à l\'application PARKFASO.');
+  return kp;
+}
+function checkKey() {
+  try { if (!$('seed').value) { $('keyStatus').textContent=''; return; } keyPair();
+    $('keyStatus').innerHTML = '<span class="ok">✓ Clé valide : elle correspond à l\'application.</span>';
+    if ($('remember').checked) localStorage.setItem('pkf_seed', $('seed').value.trim());
+  } catch (e) { $('keyStatus').innerHTML = `<span class="err">${e.message}</span>`; }
+}
+$('seed').addEventListener('input', checkKey);
+$('remember').addEventListener('change', () => { if (!$('remember').checked) localStorage.removeItem('pkf_seed'); checkKey(); });
+try { const s = localStorage.getItem('pkf_seed'); if (s) { $('seed').value = s; $('remember').checked = true; checkKey(); } } catch (_) {}
+
+function issued() { try { return JSON.parse(localStorage.getItem('pkf_issued') || '[]'); } catch (_) { return []; } }
+let revoked = [];
+function renderIssued() {
+  $('issued').innerHTML = issued().slice().reverse().map(l => `<tr><td>${l.id}</td><td>${l.c}</td><td>${l.p}</td>
+    <td>${fr(l.e)}</td><td>${revoked.includes(l.id) ? '<span class="pill off">Révoquée</span>' : '<span class="pill on">Active</span>'}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="muted">Aucune licence émise depuis cet ordinateur.</td></tr>';
+}
+
+$('gen').onclick = () => {
+  try {
+    const kp = keyPair();
+    const client = $('client').value.trim(); if (!client) throw new Error('Indiquez le client.');
+    const p = Math.max(1, parseInt($('parkings').value || '1', 10));
+    const months = parseInt($('duree').value, 10);
+    const now = new Date();
+    const exp = months === 0 ? '' : iso(new Date(now.getFullYear(), now.getMonth() + months, now.getDate()));
+    const rnd = Array.from(crypto.getRandomValues(new Uint8Array(3)), b => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 32]).join('');
+    const payload = { v: 1, id: `L${iso(now).replace(/-/g,'')}-${rnd}`, c: client, p, i: iso(now), e: exp };
+    const msg = utf8(JSON.stringify(payload));
+    const key = `PKF1.${b64url(msg)}.${b64url(nacl.sign.detached(msg, kp.secretKey))}`;
+    $('key').value = key;
+    $('summary').innerHTML = `<b>${payload.id}</b> · ${client} · ${p} parking(s) · expire : ${fr(exp)}`;
+    $('qr').innerHTML = ''; new QRCode($('qr'), { text: key, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+    $('wa').href = 'https://wa.me/?text=' + encodeURIComponent(`Votre licence PARKFASO (${p} parking(s), expire : ${fr(exp)}) :\n\n${key}\n\nDans l'application : Réglages › Licence › coller la licence.`);
+    $('result').style.display = 'block';
+    const list = issued(); list.push(payload); localStorage.setItem('pkf_issued', JSON.stringify(list)); renderIssued();
+  } catch (e) { alert(e.message); }
+};
+$('copy').onclick = () => navigator.clipboard.writeText($('key').value).then(() => { $('copy').textContent = 'Copié ✓'; setTimeout(() => $('copy').textContent = 'Copier', 1500); });
+$('exportIssued').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(issued(), null, 1)], { type: 'application/json' }));
+  a.download = `parkfaso_licences_${iso(new Date())}.json`; a.click();
+};
+
+const headers = () => ({ Authorization: 'Bearer ' + $('token').value.trim(), Accept: 'application/vnd.github+json' });
+$('token').addEventListener('change', () => { try { localStorage.setItem('pkf_token', $('token').value.trim()); } catch (_) {} });
+try { $('token').value = localStorage.getItem('pkf_token') || ''; } catch (_) {}
+
+async function loadRevocations() {
+  const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${PATH}?t=${Date.now()}`);
+  const j = await r.json();
+  revoked = (j.revoquees || []).map(x => typeof x === 'string' ? x : x.id);
+  $('revList').innerHTML = (j.revoquees || []).map(x => typeof x === 'string' ? `<li>${x}</li>` : `<li><b>${x.id}</b> — ${x.motif || ''} (${fr(x.date)})</li>`).join('') || '<li>Aucune licence révoquée.</li>';
+  renderIssued();
+}
+$('loadRev').onclick = () => loadRevocations().catch(e => $('revMsg').textContent = e.message);
+$('revoke').onclick = async () => {
+  const id = $('revId').value.trim(); if (!id) return;
+  if (!confirm(`Révoquer définitivement la licence ${id} ?`)) return;
+  $('revMsg').textContent = 'Envoi…';
+  try {
+    const cur = await fetch(`https://api.github.com/repos/${REPO}/contents/${PATH}`, { headers: headers() });
+    if (!cur.ok) throw new Error(`GitHub ${cur.status} : vérifiez le jeton.`);
+    const meta = await cur.json();
+    const data = JSON.parse(new TextDecoder().decode(b64.dec(meta.content.replace(/\n/g, ''))));
+    data.revoquees = (data.revoquees || []).filter(x => (x.id || x) !== id);
+    data.revoquees.push({ id, motif: $('revNote').value.trim(), date: iso(new Date()) });
+    data.maj = iso(new Date());
+    const body = { message: `Révocation de la licence ${id}`, sha: meta.sha,
+      content: b64.enc(utf8(JSON.stringify(data, null, 2) + '\n')) };
+    const put = await fetch(`https://api.github.com/repos/${REPO}/contents/${PATH}`, { method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+    if (!put.ok) throw new Error(`Écriture refusée (${put.status}).`);
+    $('revMsg').innerHTML = `<span class="ok">Licence ${id} révoquée. Les téléphones l'appliqueront à leur prochaine connexion.</span>`;
+    setTimeout(loadRevocations, 1500);
+  } catch (e) { $('revMsg').innerHTML = `<span class="err">${e.message}</span>`; }
+};
+renderIssued(); loadRevocations().catch(() => {});
+</script>
+</body>
+</html>

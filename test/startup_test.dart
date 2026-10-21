@@ -6,7 +6,7 @@ void main() {
   testWidgets('démarrage en échec : message + Réessayer, pas de fermeture', (tester) async {
     // En test, la base sqflite native n'existe pas : le démarrage échoue
     // exactement comme une erreur réelle sur téléphone.
-    await tester.pumpWidget(const ParkfasoApp(home: StartupGate()));
+    await tester.pumpWidget(const StartupGate());
     expect(find.text('PARKFASO'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     await tester.pumpAndSettle();
