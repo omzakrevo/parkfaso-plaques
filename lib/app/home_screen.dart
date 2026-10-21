@@ -59,10 +59,19 @@ class ParkHomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(settings.brandName),
-          Text(settings.parkingName,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: ParkColors.muted)),
+        titleSpacing: 12,
+        title: Row(children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.asset('assets/logo/parkfaso_logo.png', width: 34, height: 34,
+                errorBuilder: (_, _, _) => const SizedBox(width: 34, height: 34)),
+          ),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(settings.brandName),
+            Text(settings.parkingName,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: ParkColors.muted)),
+          ]),
         ]),
         actions: [
           ListenableBuilder(

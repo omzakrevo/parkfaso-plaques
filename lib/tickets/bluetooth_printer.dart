@@ -119,7 +119,9 @@ class BluetoothThermalPrinter extends ChangeNotifier implements TicketPrinter {
     await p.setString('$prefsKey.address', d.address);
     await p.setString('$prefsKey.name', d.name);
     await p.setString('$prefsKey.paper', _paper.name);
-    if (await api.isConnected()) await api.disconnect();
+    try {
+      if (await api.isConnected()) await api.disconnect();
+    } catch (_) {}
     _set(PrinterState.disconnected);
     await ensureConnected();
   }
@@ -148,11 +150,12 @@ class BluetoothThermalPrinter extends ChangeNotifier implements TicketPrinter {
     if (d == null) {
       throw const PrinterException('Aucune imprimante choisie. Ouvrez Réglages › Imprimante.');
     }
+    // Autorisation vérifiée AVANT tout appel Bluetooth (Android 12+).
+    await _checkBluetooth();
     if (await api.isConnected()) {
       if (_state != PrinterState.printing) _set(PrinterState.connected);
       return;
     }
-    await _checkBluetooth();
     _set(PrinterState.connecting);
     for (var attempt = 0; attempt < 2; attempt++) {
       if (await api.connect(d.address)) {
