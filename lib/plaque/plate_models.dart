@@ -1,4 +1,39 @@
-// PARKFASO — Modèles et réglages liés à l'immatriculation des motos.
+// PARKFASO — Modèles : types de véhicule, réglages, sessions de stationnement.
+
+import 'package:flutter/material.dart';
+
+/// Types de véhicule acceptés au parking.
+enum VehicleType {
+  moto('MOTO', 'Moto', 'la', 'M', Icons.two_wheeler, hasHelmet: true, hasPlate: true),
+  voiture('VOITURE', 'Voiture', 'la', 'V', Icons.directions_car_filled, hasHelmet: false, hasPlate: true),
+  tricycle('TRICYCLE', 'Tricycle', 'le', 'T', Icons.electric_rickshaw, hasHelmet: true, hasPlate: true),
+  velo('VELO', 'Vélo', 'le', 'B', Icons.pedal_bike, hasHelmet: false, hasPlate: false);
+
+  const VehicleType(this.dbValue, this.label, this.article, this.ticketSuffix, this.icon,
+      {required this.hasHelmet, required this.hasPlate});
+
+  final String dbValue;
+  final String label;
+
+  /// Article : « la moto », « le vélo ».
+  final String article;
+
+  /// « la moto », « le vélo ».
+  String get withArticle => '$article ${label.toLowerCase()}';
+
+  /// Suffixe du ticket posé sur le véhicule : PK-000125-M, -V, -T, -B.
+  final String ticketSuffix;
+  final IconData icon;
+
+  /// Dépôt de casque possible (moto, tricycle).
+  final bool hasHelmet;
+
+  /// Immatriculation possible (le vélo n'en a pas).
+  final bool hasPlate;
+
+  static VehicleType fromDb(String? v) =>
+      values.firstWhere((t) => t.dbValue == v, orElse: () => VehicleType.moto);
+}
 
 /// Comment le numéro a été obtenu (colonne `plate_capture_method`).
 enum PlateCaptureMethod {
@@ -8,7 +43,7 @@ enum PlateCaptureMethod {
   /// Tapé par le gardien, ou numéro OCR corrigé à la main.
   manual('MANUEL'),
 
-  /// Champ laissé vide (si le parking l'autorise).
+  /// Champ laissé vide.
   none('AUCUN');
 
   const PlateCaptureMethod(this.dbValue);
@@ -19,28 +54,36 @@ enum PlateCaptureMethod {
 }
 
 enum PaperWidth {
-  mm58(32),
-  mm80(48);
+  mm58(32, '58 mm'),
+  mm80(48, '80 mm');
 
-  const PaperWidth(this.charsPerLine);
+  const PaperWidth(this.charsPerLine, this.label);
 
   /// Caractères par ligne en police normale (police A, 12×24).
   final int charsPerLine;
+  final String label;
+
+  static PaperWidth fromName(String? n) =>
+      values.firstWhere((p) => p.name == n, orElse: () => PaperWidth.mm58);
 }
 
-/// Réglages du parking pour l'entrée moto. À alimenter depuis la configuration
-/// PARKFASO existante (tarifs, nom du parking, imprimante).
-class MotoEntrySettings {
-  const MotoEntrySettings({
+/// Réglages du parking. À alimenter depuis la configuration PARKFASO existante.
+class ParkingSettings {
+  const ParkingSettings({
     this.brandName = 'PARKFASO',
     required this.parkingName,
-    required this.motoPrice,
+    this.prices = const {
+      VehicleType.moto: 100,
+      VehicleType.voiture: 300,
+      VehicleType.tricycle: 200,
+      VehicleType.velo: 50,
+    },
     this.helmetPrice = 0,
     this.currency = 'FCFA',
     this.paperWidth = PaperWidth.mm58,
-    this.allowEmptyPlate = false,
-    this.autoPrintAfterConfirm = true,
+    this.allowEmptyPlate = true,
     this.maxHelmets = 3,
+    this.enabledVehicles = VehicleType.values,
     this.keepPlatePhotos = false,
     this.platePhotoRetentionDays = 7,
     this.keepOcrRawText = false,
@@ -48,19 +91,19 @@ class MotoEntrySettings {
 
   final String brandName;
   final String parkingName;
-  final int motoPrice;
+  final Map<VehicleType, int> prices;
 
   /// Prix par casque déposé (0 si gratuit).
   final int helmetPrice;
   final String currency;
   final PaperWidth paperWidth;
 
-  /// Le gardien peut-il enregistrer une moto sans numéro ?
+  /// Immatriculation facultative (par défaut) ou obligatoire.
   final bool allowEmptyPlate;
-
-  /// « Confirmer » sur l'écran caméra enregistre et imprime directement.
-  final bool autoPrintAfterConfirm;
   final int maxHelmets;
+
+  /// Types de véhicule proposés à l'accueil.
+  final List<VehicleType> enabledVehicles;
 
   /// Conservation des photos de plaques : désactivée par défaut.
   final bool keepPlatePhotos;
@@ -69,33 +112,33 @@ class MotoEntrySettings {
   /// Conserver le texte OCR brut en base (désactivé : donnée temporaire).
   final bool keepOcrRawText;
 
-  MotoEntrySettings copyWith({
-    int? motoPrice,
+  int priceOf(VehicleType t) => prices[t] ?? 0;
+
+  ParkingSettings copyWith({
+    Map<VehicleType, int>? prices,
     int? helmetPrice,
     PaperWidth? paperWidth,
     bool? allowEmptyPlate,
-    bool? autoPrintAfterConfirm,
     bool? keepPlatePhotos,
-    int? platePhotoRetentionDays,
     bool? keepOcrRawText,
   }) =>
-      MotoEntrySettings(
+      ParkingSettings(
         brandName: brandName,
         parkingName: parkingName,
-        motoPrice: motoPrice ?? this.motoPrice,
+        prices: prices ?? this.prices,
         helmetPrice: helmetPrice ?? this.helmetPrice,
         currency: currency,
         paperWidth: paperWidth ?? this.paperWidth,
         allowEmptyPlate: allowEmptyPlate ?? this.allowEmptyPlate,
-        autoPrintAfterConfirm: autoPrintAfterConfirm ?? this.autoPrintAfterConfirm,
         maxHelmets: maxHelmets,
+        enabledVehicles: enabledVehicles,
         keepPlatePhotos: keepPlatePhotos ?? this.keepPlatePhotos,
-        platePhotoRetentionDays: platePhotoRetentionDays ?? this.platePhotoRetentionDays,
+        platePhotoRetentionDays: platePhotoRetentionDays,
         keepOcrRawText: keepOcrRawText ?? this.keepOcrRawText,
       );
 }
 
-/// Ce que l'écran caméra renvoie au formulaire moto.
+/// Ce que l'écran caméra renvoie au formulaire d'entrée.
 class PlateCaptureOutcome {
   const PlateCaptureOutcome({
     required this.plate,
@@ -103,7 +146,7 @@ class PlateCaptureOutcome {
     required this.verified,
     required this.photoPath,
     this.ocrRawText,
-    this.printNow = false,
+    this.saveNow = false,
   });
 
   final String plate;
@@ -112,33 +155,36 @@ class PlateCaptureOutcome {
   final String? photoPath;
   final String? ocrRawText;
 
-  /// Le gardien a confirmé : enregistrer et imprimer sans autre geste.
-  final bool printNow;
+  /// Le gardien a confirmé : enregistrer et imprimer le ticket client sans autre geste.
+  final bool saveNow;
 }
 
-/// Une session de stationnement moto prête à être enregistrée.
-class MotoParkingSession {
-  const MotoParkingSession({
+/// Une session de stationnement.
+class ParkingSession {
+  const ParkingSession({
     this.id,
+    required this.vehicleType,
     required this.ticketBase,
     required this.enteredAt,
     required this.helmetCount,
-    required this.motoPrice,
+    required this.vehiclePrice,
     required this.helmetPrice,
     required this.licensePlate,
     required this.plateCaptureMethod,
     required this.plateVerified,
     this.plateOcrRawText,
     this.platePhotoPath,
+    this.exitedAt,
   });
 
   final int? id;
+  final VehicleType vehicleType;
 
   /// Numéro de base du ticket, ex. « PK-000125 » (suffixes -C, -M, -H1…).
   final String ticketBase;
   final DateTime enteredAt;
   final int helmetCount;
-  final int motoPrice;
+  final int vehiclePrice;
 
   /// Prix unitaire d'un casque.
   final int helmetPrice;
@@ -150,8 +196,12 @@ class MotoParkingSession {
   final String? plateOcrRawText;
   final String? platePhotoPath;
 
-  int get total => motoPrice + helmetPrice * helmetCount;
+  /// Heure de sortie (validée au scan du ticket). Null = encore au parking.
+  final DateTime? exitedAt;
+
+  int get total => vehiclePrice + helmetPrice * helmetCount;
   bool get hasPlate => licensePlate.trim().isNotEmpty;
+  bool get isInside => exitedAt == null;
 
   /// Colonnes ajoutées par la migration (à fusionner avec vos colonnes existantes).
   Map<String, Object?> plateColumns() => {
@@ -162,18 +212,19 @@ class MotoParkingSession {
         'plate_verified': plateVerified ? 1 : 0,
       };
 
-  MotoParkingSession copyWith({int? id, String? platePhotoPath, String? plateOcrRawText}) =>
-      MotoParkingSession(
+  ParkingSession copyWith({int? id, DateTime? exitedAt}) => ParkingSession(
         id: id ?? this.id,
+        vehicleType: vehicleType,
         ticketBase: ticketBase,
         enteredAt: enteredAt,
         helmetCount: helmetCount,
-        motoPrice: motoPrice,
+        vehiclePrice: vehiclePrice,
         helmetPrice: helmetPrice,
         licensePlate: licensePlate,
         plateCaptureMethod: plateCaptureMethod,
         plateVerified: plateVerified,
-        plateOcrRawText: plateOcrRawText ?? this.plateOcrRawText,
-        platePhotoPath: platePhotoPath ?? this.platePhotoPath,
+        plateOcrRawText: plateOcrRawText,
+        platePhotoPath: platePhotoPath,
+        exitedAt: exitedAt ?? this.exitedAt,
       );
 }

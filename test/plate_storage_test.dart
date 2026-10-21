@@ -24,7 +24,7 @@ void main() {
   }
 
   group('Migration de la base', () {
-    test('ajoute les 5 colonnes sans toucher aux données existantes', () async {
+    test('ajoute les colonnes plaque + sortie sans toucher aux données existantes', () async {
       final db = await legacyDb();
       final added = await const PlateColumnsMigration().apply(db);
       expect(added, kPlateColumns.keys.toList());
@@ -64,12 +64,13 @@ void main() {
     test('numéro, méthode et vérification enregistrés', () async {
       final db = await legacyDb();
       await const PlateColumnsMigration().apply(db);
-      final repo = SqfliteMotoSessionRepository(db);
+      final repo = SqfliteSessionRepository(db);
       final base = await repo.nextTicketBase();
       expect(base, 'PK-000002');
-      final id = await repo.save(MotoParkingSession(
+      final id = await repo.save(ParkingSession(
+        vehicleType: VehicleType.moto,
         ticketBase: base, enteredAt: DateTime(2026, 10, 21, 8, 35), helmetCount: 1,
-        motoPrice: 100, helmetPrice: 0, licensePlate: '11 AB 2345',
+        vehiclePrice: 100, helmetPrice: 0, licensePlate: '11 AB 2345',
         plateCaptureMethod: PlateCaptureMethod.ocr, plateVerified: true,
       ));
       final row = (await db.query('parking_sessions', where: 'id = ?', whereArgs: [id])).single;
@@ -84,14 +85,39 @@ void main() {
     test('plaque vide : NULL en base, méthode AUCUN', () async {
       final db = await legacyDb();
       await const PlateColumnsMigration().apply(db);
-      final repo = SqfliteMotoSessionRepository(db);
-      final id = await repo.save(MotoParkingSession(
-        ticketBase: 'PK-000002', enteredAt: DateTime(2026), helmetCount: 0, motoPrice: 100,
+      final repo = SqfliteSessionRepository(db);
+      final id = await repo.save(ParkingSession(
+        vehicleType: VehicleType.moto,
+        ticketBase: 'PK-000002', enteredAt: DateTime(2026), helmetCount: 0, vehiclePrice: 100,
         helmetPrice: 0, licensePlate: '', plateCaptureMethod: PlateCaptureMethod.none, plateVerified: false,
       ));
       final row = (await db.query('parking_sessions', where: 'id = ?', whereArgs: [id])).single;
       expect(row['license_plate'], isNull);
       expect(row['plate_capture_method'], 'AUCUN');
+    });
+  });
+
+  group('Sortie (scan du ticket)', () {
+    test('retrouver une session par ticket puis valider la sortie', () async {
+      final db = await legacyDb();
+      await const PlateColumnsMigration().apply(db);
+      final repo = SqfliteSessionRepository(db);
+      await repo.save(ParkingSession(
+        vehicleType: VehicleType.voiture, ticketBase: 'PK-000002',
+        enteredAt: DateTime(2026, 10, 21, 8, 35), helmetCount: 0, vehiclePrice: 300,
+        helmetPrice: 0, licensePlate: '11 AB 2345',
+        plateCaptureMethod: PlateCaptureMethod.ocr, plateVerified: true,
+      ));
+      final found = (await repo.findByTicket('PK-000002'))!;
+      expect(found.vehicleType, VehicleType.voiture);
+      expect(found.licensePlate, '11 AB 2345');
+      expect(found.total, 300);
+      expect(found.isInside, isTrue);
+      await repo.markExited(found.id!, DateTime(2026, 10, 21, 10, 0));
+      final after = (await repo.findByTicket('PK-000002'))!;
+      expect(after.isInside, isFalse);
+      expect(after.exitedAt, DateTime(2026, 10, 21, 10, 0));
+      expect(await repo.findByTicket('PK-999999'), isNull);
     });
   });
 

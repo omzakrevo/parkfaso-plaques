@@ -1,4 +1,4 @@
-// PARKFASO — Base de données : colonnes d'immatriculation + enregistrement moto.
+// PARKFASO — Base de données : colonnes d'immatriculation, sortie, enregistrement.
 //
 // La migration est idempotente : elle n'ajoute que les colonnes absentes et ne
 // touche à aucune donnée existante. Elle peut donc tourner à chaque démarrage.
@@ -14,6 +14,8 @@ const Map<String, String> kPlateColumns = {
   'plate_ocr_raw_text': 'TEXT',
   'plate_photo_path': 'TEXT',
   'plate_verified': 'INTEGER NOT NULL DEFAULT 0',
+  // Scan du ticket à la sortie
+  'exited_at': 'TEXT',
 };
 
 class PlateColumnsMigration {
@@ -51,19 +53,26 @@ class PlateColumnsMigration {
   }
 }
 
-/// Enregistrement des sessions moto. Branchez ici votre dépôt PARKFASO existant
-/// si vous en avez déjà un (il suffit d'implémenter ces deux méthodes).
-abstract class MotoSessionRepository {
+/// Enregistrement et lecture des sessions. Branchez ici votre dépôt PARKFASO
+/// existant si vous en avez déjà un.
+abstract class SessionRepository {
   /// Prochain numéro de ticket, ex. « PK-000125 ».
   Future<String> nextTicketBase();
 
   /// Enregistre la session et renvoie son identifiant.
-  Future<int> save(MotoParkingSession session);
+  Future<int> save(ParkingSession session);
+
+  /// Retrouve une session par son numéro de base (« PK-000125 »).
+  Future<ParkingSession?> findByTicket(String ticketBase);
+
+  /// Enregistre la sortie du véhicule.
+  Future<void> markExited(int id, DateTime at);
 }
 
 /// Noms des colonnes déjà présentes dans votre table des sessions.
 class SessionColumns {
   const SessionColumns({
+    this.id = 'id',
     this.ticketNumber = 'ticket_number',
     this.vehicleType = 'vehicle_type',
     this.enteredAt = 'entered_at',
@@ -71,6 +80,7 @@ class SessionColumns {
     this.amount = 'amount',
   });
 
+  final String id;
   final String ticketNumber;
   final String vehicleType;
   final String enteredAt;
@@ -78,18 +88,22 @@ class SessionColumns {
   final String amount;
 }
 
-class SqfliteMotoSessionRepository implements MotoSessionRepository {
-  SqfliteMotoSessionRepository(
+class SqfliteSessionRepository implements SessionRepository {
+  SqfliteSessionRepository(
     this.db, {
     this.table = 'parking_sessions',
     this.columns = const SessionColumns(),
     this.ticketPrefix = 'PK',
+    this.helmetPrice = 0,
   });
 
   final Database db;
   final String table;
   final SessionColumns columns;
   final String ticketPrefix;
+
+  /// Prix casque actuel, pour reconstituer le détail d'une session lue en base.
+  final int helmetPrice;
 
   @override
   Future<String> nextTicketBase() async {
@@ -99,14 +113,45 @@ class SqfliteMotoSessionRepository implements MotoSessionRepository {
   }
 
   @override
-  Future<int> save(MotoParkingSession s) {
+  Future<int> save(ParkingSession s) {
     return db.insert(table, {
       columns.ticketNumber: s.ticketBase,
-      columns.vehicleType: 'MOTO',
+      columns.vehicleType: s.vehicleType.dbValue,
       columns.enteredAt: s.enteredAt.toIso8601String(),
       columns.helmetCount: s.helmetCount,
       columns.amount: s.total,
       ...s.plateColumns(),
+      'exited_at': s.exitedAt?.toIso8601String(),
     });
+  }
+
+  @override
+  Future<ParkingSession?> findByTicket(String ticketBase) async {
+    final rows = await db.query(table,
+        where: '${columns.ticketNumber} = ?', whereArgs: [ticketBase], limit: 1);
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    final helmets = (r[columns.helmetCount] as int?) ?? 0;
+    final amount = (r[columns.amount] as int?) ?? 0;
+    return ParkingSession(
+      id: r[columns.id] as int?,
+      vehicleType: VehicleType.fromDb(r[columns.vehicleType] as String?),
+      ticketBase: r[columns.ticketNumber] as String,
+      enteredAt: DateTime.parse(r[columns.enteredAt] as String),
+      helmetCount: helmets,
+      vehiclePrice: amount - helmetPrice * helmets,
+      helmetPrice: helmetPrice,
+      licensePlate: (r['license_plate'] as String?) ?? '',
+      plateCaptureMethod: PlateCaptureMethod.fromDb(r['plate_capture_method'] as String?),
+      plateVerified: r['plate_verified'] == 1,
+      platePhotoPath: r['plate_photo_path'] as String?,
+      exitedAt: r['exited_at'] == null ? null : DateTime.parse(r['exited_at'] as String),
+    );
+  }
+
+  @override
+  Future<void> markExited(int id, DateTime at) async {
+    await db.update(table, {'exited_at': at.toIso8601String()},
+        where: '${columns.id} = ?', whereArgs: [id]);
   }
 }

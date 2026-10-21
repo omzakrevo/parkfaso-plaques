@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app/parkfaso_theme.dart';
 import 'plate_camera_source.dart';
 import 'plate_image_preprocessor.dart';
 import 'plate_manual_crop_screen.dart';
@@ -17,7 +18,7 @@ class PlateCaptureScreen extends StatefulWidget {
     super.key,
     required this.ocr,
     this.camera,
-    this.autoPrintOnConfirm = true,
+    this.confirmLabel = 'CONFIRMER',
   });
 
   final PlateOcrService ocr;
@@ -25,14 +26,15 @@ class PlateCaptureScreen extends StatefulWidget {
   /// Caméra injectable (tests). Par défaut : caméra arrière du téléphone.
   final PlateCameraSource? camera;
 
-  /// « Confirmer » renvoie printNow = true → enregistrement + impression directs.
-  final bool autoPrintOnConfirm;
+  /// Libellé du bouton de confirmation (« CONFIRMER ET IMPRIMER » quand le
+  /// formulaire est complet : le ticket client sort aussitôt).
+  final String confirmLabel;
 
   /// Ouvre l'écran et renvoie le numéro validé (ou null si le gardien annule).
   static Future<PlateCaptureOutcome?> open(BuildContext context,
-      {required PlateOcrService ocr, PlateCameraSource? camera, bool autoPrintOnConfirm = true}) {
+      {required PlateOcrService ocr, PlateCameraSource? camera, String confirmLabel = 'CONFIRMER'}) {
     return Navigator.of(context).push<PlateCaptureOutcome>(MaterialPageRoute(
-      builder: (_) => PlateCaptureScreen(ocr: ocr, camera: camera, autoPrintOnConfirm: autoPrintOnConfirm),
+      builder: (_) => PlateCaptureScreen(ocr: ocr, camera: camera, confirmLabel: confirmLabel),
     ));
   }
 
@@ -150,7 +152,7 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
       verified: true,
       photoPath: _photoPath,
       ocrRawText: _result?.parse.rawText,
-      printNow: widget.autoPrintOnConfirm,
+      saveNow: true,
     ));
   }
 
@@ -166,7 +168,7 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
       photoPath: _photoPath,
       ocrRawText: _result?.parse.rawText,
       // Après une correction, on revient au formulaire : le gardien relit avant d'imprimer.
-      printNow: false,
+      saveNow: false,
     ));
   }
 
@@ -240,7 +242,7 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
                   CircularProgressIndicator(color: Colors.white),
                   SizedBox(height: 12),
                   Text('Analyse en cours…',
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+                      style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
                 ]),
               ),
             ),
@@ -255,7 +257,7 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
     switch (_phase) {
       case _Phase.starting:
       case _Phase.analyzing:
-        body = const SizedBox(height: 88);
+        body = const SizedBox(height: 76);
       case _Phase.cameraError:
         body = _wide(FilledButton.icon(
           onPressed: _correct,
@@ -274,11 +276,11 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
               key: const Key('capture-button'),
               onTap: _capture,
               child: Container(
-                width: 76,
-                height: 76,
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 5),
+                  border: Border.all(color: Colors.white, width: 4),
                 ),
                 child: const Padding(
                   padding: EdgeInsets.all(5),
@@ -294,7 +296,7 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
     return Container(
       width: double.infinity,
       color: _phase == _Phase.result ? theme.colorScheme.surface : Colors.black,
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: body,
     );
   }
@@ -315,7 +317,7 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
             children.add(Text(
               '$corrections caractère${corrections > 1 ? 's' : ''} corrigé${corrections > 1 ? 's' : ''} '
               'automatiquement — vérifiez',
-              style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
+              style: TextStyle(color: ParkColors.warn, fontSize: 13),
             ));
           }
         case PlateMatchStatus.ambiguous:
@@ -324,7 +326,7 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
           children.add(Wrap(spacing: 8, runSpacing: 8, children: [
             for (final c in parse.candidates.take(4))
               ChoiceChip(
-                label: Text(c.plate, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                label: Text(c.plate, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                 selected: _selected == c.plate,
                 onSelected: (_) => setState(() => _selected = c.plate),
               ),
@@ -332,7 +334,7 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
         case PlateMatchStatus.partial:
           children.add(_message(
             'Plaque incomplète : aucun numéro proposé.\nLu : « ${parse.partialHint} »',
-            Icons.warning_amber, Colors.orange.shade800));
+            Icons.warning_amber, ParkColors.warn));
         case PlateMatchStatus.notFound:
           children.add(_message('Aucune plaque reconnue.', Icons.search_off, theme.colorScheme.error));
       }
@@ -341,26 +343,14 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
     if (_selected != null) {
       children.add(Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Container(
-          key: const Key('detected-plate'),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: Colors.black, width: 3),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(_selected!,
-              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: 2,
-                  color: Colors.black)),
-        ),
+        child: PlateBadge(_selected!, key: const Key('detected-plate'), size: 24),
       ));
       children.add(_wide(FilledButton.icon(
         key: const Key('confirm-plate'),
-        style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700, minimumSize: const Size.fromHeight(56)),
+        style: FilledButton.styleFrom(backgroundColor: ParkColors.green),
         onPressed: _confirm,
-        icon: const Icon(Icons.check_circle),
-        label: Text(widget.autoPrintOnConfirm ? 'CONFIRMER ET IMPRIMER' : 'CONFIRMER',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        icon: const Icon(Icons.check, size: 20),
+        label: Text(widget.confirmLabel),
       )));
       children.add(const SizedBox(height: 8));
       children.add(Row(children: [
@@ -376,7 +366,6 @@ class _PlateCaptureScreenState extends State<PlateCaptureScreen> {
       children.add(const SizedBox(height: 10));
       children.add(_wide(FilledButton.icon(
         key: const Key('retake-photo'),
-        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
         onPressed: _retake,
         icon: const Icon(Icons.camera_alt),
         label: const Text('REPRENDRE LA PHOTO'),
@@ -460,7 +449,7 @@ Future<String?> showPlateEditDialog(BuildContext context,
         controller: ctrl,
         autofocus: true,
         textCapitalization: TextCapitalization.characters,
-        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2),
+        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: 1.5),
         decoration: const InputDecoration(hintText: '11 AB 2345'),
         inputFormatters: [UpperCaseTextFormatter()],
       ),

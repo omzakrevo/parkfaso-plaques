@@ -8,7 +8,8 @@ alter table public.parking_sessions
     check (plate_capture_method in ('OCR', 'MANUEL', 'AUCUN')),
   add column if not exists plate_ocr_raw_text   text,
   add column if not exists plate_photo_path     text,
-  add column if not exists plate_verified       boolean not null default false;
+  add column if not exists plate_verified       boolean not null default false,
+  add column if not exists exited_at            timestamptz;
 
 create index if not exists idx_parking_sessions_license_plate
   on public.parking_sessions (license_plate);

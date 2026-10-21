@@ -1,16 +1,14 @@
-// PARKFASO — Tickets thermiques moto (client, moto, casques) avec immatriculation.
+// PARKFASO — Tickets thermiques courts (client, véhicule, casques) avec QR code.
 //
 // Le ticket est décrit ligne par ligne (TicketDocument), puis :
 //   • rendu en texte (aperçu, tests) avec [TicketTextRenderer] ;
 //   • encodé en ESC/POS avec [EscPosTicketEncoder] pour les imprimantes 58/80 mm.
-// Si PARKFASO a déjà son module d'impression, il suffit de lui passer les
-// TicketDocument (ou les octets ESC/POS) via [TicketPrinter].
 
 import 'dart:convert';
 
 import '../plaque/plate_models.dart';
 
-enum TicketKind { client, moto, casque }
+enum TicketKind { client, vehicule, casque }
 
 enum TicketAlign { left, center, right }
 
@@ -27,18 +25,10 @@ class TicketLine {
         large = false,
         _rule = true;
 
-  /// Libellé à gauche, valeur à droite : « PRIX MOTO :      100 FCFA ».
-  const TicketLine.pair(String label, String value)
+  /// Texte à gauche, texte à droite sur la même ligne.
+  const TicketLine.pair(String label, String value, {this.bold = false})
       : text = '$label\u0000$value',
         align = TicketAlign.left,
-        bold = false,
-        large = false,
-        _rule = false;
-
-  const TicketLine.blank()
-      : text = '',
-        align = TicketAlign.left,
-        bold = false,
         large = false,
         _rule = false;
 
@@ -73,133 +63,157 @@ class TicketDocument {
 String _two(int n) => n.toString().padLeft(2, '0');
 String formatDate(DateTime d) => '${_two(d.day)}/${_two(d.month)}/${d.year}';
 String formatTime(DateTime d) => '${_two(d.hour)}:${_two(d.minute)}';
+String formatDateTime(DateTime d) => '${formatDate(d)} ${formatTime(d)}';
 
-/// Construit les tickets d'une entrée moto : client + moto + un ticket par casque.
-class MotoTicketBuilder {
-  const MotoTicketBuilder(this.settings);
+/// Contenu du QR code d'un ticket : `PKF1|PK-000125-C|11AB2345|2026-10-21T08:35`.
+class TicketQr {
+  const TicketQr({
+    required this.ticketNumber,
+    required this.ticketBase,
+    required this.kind,
+    required this.plate,
+    this.enteredAt,
+    this.helmetIndex,
+  });
 
-  final MotoEntrySettings settings;
+  final String ticketNumber;
+  final String ticketBase;
+  final TicketKind kind;
 
-  static const plateMissing = 'NON RENSEIGNEE';
+  /// Plaque compacte (sans espaces), vide si non renseignée.
+  final String plate;
+  final DateTime? enteredAt;
+  final int? helmetIndex;
 
-  List<TicketDocument> buildAll(MotoParkingSession s) => [
-        buildClient(s),
-        buildMoto(s),
-        for (var i = 1; i <= s.helmetCount; i++) buildHelmet(s, i),
-      ];
-
-  String _money(int v) => '$v ${settings.currency}';
-  String _plate(MotoParkingSession s) => s.hasPlate ? s.licensePlate : plateMissing;
-
-  List<TicketLine> _header(String title) => [
-        const TicketLine.rule('='),
-        TicketLine(settings.brandName, align: TicketAlign.center, bold: true),
-        TicketLine(settings.parkingName.toUpperCase(), align: TicketAlign.center),
-        const TicketLine.rule('='),
-        TicketLine(title, align: TicketAlign.center, bold: true),
-        const TicketLine.blank(),
-      ];
-
-  List<TicketLine> _plateBlock(MotoParkingSession s, {String label = 'IMMATRICULATION :'}) => [
-        TicketLine(label),
-        TicketLine(_plate(s), align: TicketAlign.center, bold: true, large: s.hasPlate),
-        const TicketLine.blank(),
-      ];
-
-  List<TicketLine> _dateBlock(MotoParkingSession s) => [
-        TicketLine('DATE : ${formatDate(s.enteredAt)}'),
-        TicketLine('HEURE : ${formatTime(s.enteredAt)}'),
-        const TicketLine.blank(),
-      ];
-
-  /// Contenu du QR : compact, lisible par le module de sortie de PARKFASO.
-  String qrPayload(MotoParkingSession s, String number) => [
+  static String encode(String number, ParkingSession s) => [
         'PKF1',
         number,
         s.licensePlate.replaceAll(' ', ''),
         s.enteredAt.toIso8601String().substring(0, 16),
       ].join('|');
 
-  TicketDocument buildClient(MotoParkingSession s) {
+  /// Lit un QR PARKFASO, ou un numéro saisi à la main (« PK-000125-C », « pk000125 »).
+  /// Retourne null si le code n'est pas un ticket PARKFASO.
+  static TicketQr? tryParse(String raw) {
+    final code = raw.trim();
+    String number;
+    var plate = '';
+    DateTime? at;
+    if (code.startsWith('PKF1|')) {
+      final parts = code.split('|');
+      if (parts.length < 4) return null;
+      number = parts[1];
+      plate = parts[2];
+      at = DateTime.tryParse(parts[3]);
+    } else {
+      number = code.toUpperCase().replaceAll(' ', '');
+    }
+    final m = RegExp(r'^([A-Z]{1,4})-?(\d{3,9})(?:-([A-Z])(\d{0,2}))?$').firstMatch(number);
+    if (m == null) return null;
+    final base = '${m.group(1)}-${m.group(2)!.padLeft(6, '0')}';
+    final suffix = m.group(3);
+    final kind = switch (suffix) {
+      'H' => TicketKind.casque,
+      null || 'C' => TicketKind.client,
+      _ => TicketKind.vehicule,
+    };
+    final idx = suffix == 'H' ? int.tryParse(m.group(4) ?? '') : null;
+    return TicketQr(
+      ticketNumber: suffix == null ? base : '$base-$suffix${m.group(4) ?? ''}',
+      ticketBase: base,
+      kind: kind,
+      plate: plate,
+      enteredAt: at,
+      helmetIndex: idx,
+    );
+  }
+}
+
+/// Construit les tickets d'une entrée : client (imprimé tout de suite),
+/// puis véhicule et casques (imprimés seulement si le gardien le décide).
+class TicketBuilder {
+  const TicketBuilder(this.settings);
+
+  final ParkingSettings settings;
+
+  List<TicketDocument> buildAll(ParkingSession s) => [buildClient(s), ...buildSecondary(s)];
+
+  /// Tickets de la 2e phase : véhicule + un ticket par casque.
+  List<TicketDocument> buildSecondary(ParkingSession s, {bool vehicle = true, bool helmets = true}) => [
+        if (vehicle) buildVehicle(s),
+        if (helmets)
+          for (var i = 1; i <= s.helmetCount; i++) buildHelmet(s, i),
+      ];
+
+  String _money(int v) => '$v ${settings.currency}';
+
+  List<TicketLine> get _header => [
+        TicketLine('${settings.brandName} - ${settings.parkingName.toUpperCase()}',
+            align: TicketAlign.center, bold: true),
+        const TicketLine.rule('-'),
+      ];
+
+  List<TicketLine> _plate(ParkingSession s) => s.hasPlate
+      ? [TicketLine(s.licensePlate, align: TicketAlign.center, bold: true, large: true)]
+      : const [];
+
+  TicketDocument buildClient(ParkingSession s) {
     final number = '${s.ticketBase}-C';
+    final label = s.vehicleType.label.toUpperCase().replaceAll('É', 'E');
     return TicketDocument(
       kind: TicketKind.client,
       number: number,
-      qrData: qrPayload(s, number),
+      qrData: TicketQr.encode(number, s),
       lines: [
-        ..._header('TICKET CLIENT'),
-        TicketLine('N° : $number'),
-        const TicketLine.blank(),
-        const TicketLine('VEHICULE : MOTO'),
-        ..._plateBlock(s),
-        TicketLine('CASQUE : ${_two(s.helmetCount)}'),
-        const TicketLine.blank(),
-        ..._dateBlock(s),
-        const TicketLine.rule('-'),
-        TicketLine.pair('PRIX MOTO :', _money(s.motoPrice)),
-        TicketLine.pair('PRIX CASQUE :', _money(s.helmetPrice * s.helmetCount)),
-        const TicketLine.rule('-'),
-        TicketLine.pair('TOTAL :', _money(s.total)),
-        const TicketLine.rule('-'),
+        ..._header,
+        TicketLine.pair('TICKET CLIENT', number, bold: true),
+        TicketLine.pair(label, formatDateTime(s.enteredAt)),
+        ..._plate(s),
+        if (s.helmetCount > 0)
+          TicketLine.pair('CASQUE: ${s.helmetCount}', 'TOTAL ${_money(s.total)}', bold: true)
+        else
+          TicketLine.pair('TOTAL', _money(s.total), bold: true),
       ],
-      footer: const [
-        TicketLine('CONSERVEZ CE TICKET', align: TicketAlign.center, bold: true),
-        TicketLine.rule('='),
-      ],
+      footer: const [TicketLine('CONSERVEZ CE TICKET', align: TicketAlign.center)],
     );
   }
 
-  TicketDocument buildMoto(MotoParkingSession s) {
-    final number = '${s.ticketBase}-M';
+  TicketDocument buildVehicle(ParkingSession s) {
+    final number = '${s.ticketBase}-${s.vehicleType.ticketSuffix}';
+    final label = s.vehicleType.label.toUpperCase().replaceAll('É', 'E');
     return TicketDocument(
-      kind: TicketKind.moto,
+      kind: TicketKind.vehicule,
       number: number,
-      qrData: qrPayload(s, number),
+      qrData: TicketQr.encode(number, s),
       lines: [
-        ..._header('TICKET MOTO'),
-        TicketLine('N° : $number'),
-        const TicketLine.blank(),
-        ..._plateBlock(s),
-        ..._dateBlock(s),
-        const TicketLine.rule('-'),
-        TicketLine.pair('PRIX MOTO :', _money(s.motoPrice)),
-        const TicketLine.rule('-'),
+        ..._header,
+        TicketLine.pair('TICKET $label', number, bold: true),
+        TicketLine(formatDateTime(s.enteredAt)),
+        ..._plate(s),
       ],
-      footer: const [
-        TicketLine('A LAISSER SUR LA MOTO', align: TicketAlign.center, bold: true),
-        TicketLine.rule('='),
-      ],
+      footer: [TicketLine('A LAISSER SUR ${s.vehicleType.withArticle.toUpperCase().replaceAll('É', 'E')}', align: TicketAlign.center)],
     );
   }
 
-  TicketDocument buildHelmet(MotoParkingSession s, int index) {
+  TicketDocument buildHelmet(ParkingSession s, int index) {
     final number = '${s.ticketBase}-H$index';
     return TicketDocument(
       kind: TicketKind.casque,
       number: number,
-      qrData: qrPayload(s, number),
+      qrData: TicketQr.encode(number, s),
       lines: [
-        ..._header('TICKET CASQUE'),
-        TicketLine('N° : $number'),
-        const TicketLine.blank(),
-        ..._plateBlock(s, label: 'MOTO ASSOCIEE :'),
-        TicketLine('CASQUE N° : ${_two(index)} / ${_two(s.helmetCount)}', bold: true),
-        const TicketLine.blank(),
-        ..._dateBlock(s),
-        const TicketLine.rule('-'),
-        TicketLine.pair('PRIX CASQUE :', _money(s.helmetPrice)),
-        const TicketLine.rule('-'),
+        ..._header,
+        TicketLine.pair('CASQUE ${_two(index)}/${_two(s.helmetCount)}', number, bold: true),
+        TicketLine.pair(s.hasPlate ? s.licensePlate : s.vehicleType.label.toUpperCase(),
+            formatTime(s.enteredAt)),
       ],
-      footer: const [
-        TicketLine('A FIXER SUR LE CASQUE', align: TicketAlign.center, bold: true),
-        TicketLine.rule('='),
-      ],
+      footer: const [TicketLine('A FIXER SUR LE CASQUE', align: TicketAlign.center)],
     );
   }
 }
 
 /// Supprime les accents : les imprimantes thermiques bon marché n'ont souvent
-/// pas la bonne page de code (« N° » reste lisible, le reste passe en ASCII).
+/// pas la bonne page de code.
 String toPrinterAscii(String s) {
   const map = {
     'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e', 'à': 'a', 'â': 'a', 'î': 'i', 'ï': 'i',
@@ -221,9 +235,7 @@ class TicketTextRenderer {
 
   List<String> render(TicketDocument doc) => [
         for (final l in doc.lines) ...renderLine(l),
-        '',
         _center('[QR CODE]', paper.charsPerLine),
-        '',
         for (final l in doc.footer) ...renderLine(l),
       ];
 
@@ -233,7 +245,8 @@ class TicketTextRenderer {
     if (l.isPair) {
       final parts = l.text.split('\u0000');
       final gap = width - parts[0].length - parts[1].length;
-      return [gap >= 1 ? '${parts[0]}${' ' * gap}${parts[1]}' : '${parts[0]} ${parts[1]}'];
+      if (gap >= 1) return ['${parts[0]}${' ' * gap}${parts[1]}'];
+      return [parts[0], parts[1].padLeft(width)];
     }
     return _wrap(l.text, width).map((t) => switch (l.align) {
           TicketAlign.left => t,
@@ -263,12 +276,15 @@ class TicketTextRenderer {
   }
 }
 
-/// Encodeur ESC/POS standard (Epson, Xprinter, Goojprt, Rongta… 58 et 80 mm).
+/// Encodeur ESC/POS standard (Xprinter, Goojprt, MTP-II, Rongta, Epson… 58 et 80 mm).
 class EscPosTicketEncoder {
   const EscPosTicketEncoder(this.paper, {this.qrModuleSize, this.cut = true});
 
   final PaperWidth paper;
   final int? qrModuleSize;
+
+  /// Beaucoup d'imprimantes 58 mm Bluetooth n'ont pas de massicot : la commande
+  /// est alors simplement ignorée.
   final bool cut;
 
   static const _esc = 0x1B, _gs = 0x1D;
@@ -280,7 +296,7 @@ class EscPosTicketEncoder {
       out.addAll([_esc, 0x61, switch (l.align) { TicketAlign.left => 0, TicketAlign.center => 1, TicketAlign.right => 2 }]);
       out.addAll([_esc, 0x45, l.bold ? 1 : 0]);
       out.addAll([_gs, 0x21, l.large ? 0x11 : 0x00]);
-      // L'alignement est fait par l'imprimante : on envoie le texte non centré.
+      // L'alignement centré est fait par l'imprimante : texte envoyé sans marge.
       final texts = l.align == TicketAlign.left
           ? renderer.renderLine(l)
           : renderer.renderLine(TicketLine(l.text, large: l.large)).map((t) => t.trim());
@@ -294,20 +310,19 @@ class EscPosTicketEncoder {
       line(l);
     }
     out.addAll([_esc, 0x45, 0, _gs, 0x21, 0]);
-    out.add(0x0A);
-    out.addAll(_qr(doc.qrData));
-    out.add(0x0A);
+    out.addAll(qr(doc.qrData));
     for (final l in doc.footer) {
       line(l);
     }
-    out.addAll([_esc, 0x61, 0, _esc, 0x64, 4]); // avance de 4 lignes
+    out.addAll([_esc, 0x61, 0, _esc, 0x64, 3]); // avance de 3 lignes
     if (cut) out.addAll([_gs, 0x56, 0x42, 0x00]); // coupe partielle
     return out;
   }
 
-  List<int> _qr(String data) {
+  /// QR code natif ESC/POS (GS ( k), modèle 2, correction M.
+  List<int> qr(String data) {
     final bytes = ascii.encode(toPrinterAscii(data));
-    final size = qrModuleSize ?? (paper == PaperWidth.mm58 ? 5 : 7);
+    final size = qrModuleSize ?? (paper == PaperWidth.mm58 ? 5 : 6);
     final len = bytes.length + 3;
     return [
       _esc, 0x61, 1, // centré
@@ -316,18 +331,18 @@ class EscPosTicketEncoder {
       _gs, 0x28, 0x6B, 3, 0, 0x31, 0x45, 0x31, // correction d'erreur M
       _gs, 0x28, 0x6B, len & 0xFF, len >> 8, 0x31, 0x50, 0x30, ...bytes, // données
       _gs, 0x28, 0x6B, 3, 0, 0x31, 0x51, 0x30, // impression
+      0x0A,
     ];
   }
 }
 
-/// Impression : branchez votre imprimante PARKFASO existante ici.
+/// Impression : imprimante Bluetooth (voir bluetooth_printer.dart) ou autre.
 abstract class TicketPrinter {
   /// Imprime les tickets à la suite, dans l'ordre reçu.
   Future<void> printTickets(List<TicketDocument> tickets);
 }
 
-/// Adaptateur prêt à l'emploi pour toute librairie qui envoie des octets bruts
-/// (Bluetooth, USB, réseau) : passez simplement votre fonction d'envoi.
+/// Adaptateur pour toute librairie qui envoie des octets bruts (USB, réseau…).
 class EscPosBytesPrinter implements TicketPrinter {
   EscPosBytesPrinter(this.send, this.paper);
 
