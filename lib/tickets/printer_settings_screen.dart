@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../app/parkfaso_theme.dart';
+import '../core/platform.dart';
 import '../plaque/plate_models.dart';
 import 'bluetooth_printer.dart';
 
@@ -147,16 +148,21 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
           ),
         ],
         const SizedBox(height: 20),
-        SectionLabel('Appareils appairés',
+        SectionLabel(isDesktop ? 'Imprimantes et ports COM du PC' : 'Appareils appairés',
             trailing: _loading
                 ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
                 : null),
         if (_devices != null && _devices!.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Text('Aucun appareil. Appairez d\'abord l\'imprimante dans les réglages '
-                'Bluetooth du téléphone (code 0000 ou 1234), puis actualisez.',
-                style: TextStyle(color: ParkColors.muted)),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+                isDesktop
+                    ? 'Aucune imprimante. Installez l\'imprimante thermique dans Windows '
+                        '(pilote POS-58 / POS-80 ou « Generic / Text Only »), ou appairez-la en '
+                        'Bluetooth dans Windows : elle apparaît alors comme port COM. Puis actualisez.'
+                    : 'Aucun appareil. Appairez d\'abord l\'imprimante dans les réglages '
+                        'Bluetooth du téléphone (code 0000 ou 1234), puis actualisez.',
+                style: const TextStyle(color: ParkColors.muted)),
           ),
         if (_devices != null && _devices!.isNotEmpty)
           Card(

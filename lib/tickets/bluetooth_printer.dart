@@ -5,12 +5,15 @@
 // L'imprimante doit d'abord être appairée dans les réglages Bluetooth du
 // téléphone (code habituel : 0000 ou 1234).
 
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../plaque/plate_models.dart';
 import 'tickets.dart';
+import 'windows_printer.dart';
 
 class BtDevice {
   const BtDevice(this.name, this.address);
@@ -60,7 +63,7 @@ enum PrinterState { notConfigured, disconnected, connecting, connected, printing
 /// Imprimante choisie + connexion. Mémorise l'imprimante et le papier.
 class BluetoothThermalPrinter extends ChangeNotifier implements TicketPrinter {
   BluetoothThermalPrinter({BluetoothPrinterApi? api, this.prefsKey = 'parkfaso.printer'})
-      : api = api ?? PluginBluetoothApi();
+      : api = api ?? (Platform.isWindows ? WindowsPrinterApi() : PluginBluetoothApi());
 
   final BluetoothPrinterApi api;
   final String prefsKey;

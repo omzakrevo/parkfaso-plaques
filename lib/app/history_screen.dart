@@ -21,11 +21,25 @@ import 'session_sheet.dart';
 Future<void> Function(String fileName, Uint8List bytes, String mime) shareExport = _systemShare;
 
 Future<void> _systemShare(String fileName, Uint8List bytes, String mime) async {
+  if (Platform.isWindows) {
+    // PC : enregistré dans Documents\PARKFASO, puis le dossier s'ouvre avec le
+    // fichier sélectionné (double-clic pour l'ouvrir dans Excel / le lecteur PDF).
+    final dir = Directory(p.join((await getApplicationDocumentsDirectory()).path, 'PARKFASO'));
+    await dir.create(recursive: true);
+    final f = File(p.join(dir.path, fileName));
+    await f.writeAsBytes(bytes, flush: true);
+    lastExportPath = f.path;
+    await Process.run('explorer.exe', ['/select,', f.path]);
+    return;
+  }
   final dir = await getTemporaryDirectory();
   final f = File(p.join(dir.path, fileName));
   await f.writeAsBytes(bytes, flush: true);
   await SharePlus.instance.share(ShareParams(files: [XFile(f.path, mimeType: mime)], subject: fileName));
 }
+
+/// Dernier fichier enregistré sur PC (affiché au gardien).
+String? lastExportPath;
 
 enum PeriodPreset { today, yesterday, week, month, custom }
 
@@ -106,6 +120,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final bytes = buildHistoryXlsx(parkingName: name, filter: f, sessions: items, now: app.clock());
         await shareExport(exportFileName(name, f, 'xlsx'), bytes,
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      }
+      if (Platform.isWindows && lastExportPath != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            backgroundColor: ParkColors.green, content: Text('Enregistré : $lastExportPath')));
       }
     } catch (e) {
       if (mounted) {

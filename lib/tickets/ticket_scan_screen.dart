@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../app/parkfaso_theme.dart';
+import '../core/platform.dart';
 import '../plaque/plate_database.dart';
 import '../plaque/plate_models.dart';
 import 'tickets.dart';
@@ -70,12 +71,7 @@ String formatDuration(Duration d) {
 }
 
 class TicketScanScreen extends StatefulWidget {
-  const TicketScanScreen({
-    super.key,
-    required this.service,
-    this.currency = 'FCFA',
-    this.scannerBuilder,
-  });
+  const TicketScanScreen({super.key, required this.service, this.currency = 'FCFA', this.scannerBuilder});
 
   final TicketScanService service;
   final String currency;
@@ -97,7 +93,7 @@ class _TicketScanScreenState extends State<TicketScanScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.scannerBuilder == null) {
+    if (widget.scannerBuilder == null && hasMobileCamera) {
       _controller = MobileScannerController(
         formats: const [BarcodeFormat.qrCode],
         detectionSpeed: DetectionSpeed.noDuplicates,
@@ -138,10 +134,10 @@ class _TicketScanScreenState extends State<TicketScanScreen> {
   }
 
   void _next() => setState(() {
-        _result = null;
-        _lastCode = null;
-        _exitDone = null;
-      });
+    _result = null;
+    _lastCode = null;
+    _exitDone = null;
+  });
 
   Future<void> _manual() async {
     final ctrl = TextEditingController();
@@ -194,44 +190,56 @@ class _TicketScanScreenState extends State<TicketScanScreen> {
             ),
         ],
       ),
-      body: Column(children: [
-        Expanded(
-          child: Stack(fit: StackFit.expand, children: [
-            widget.scannerBuilder?.call(_onCode) ??
-                MobileScanner(
-                  controller: _controller,
-                  onDetect: (capture) {
-                    final v = capture.barcodes.firstOrNull?.rawValue;
-                    if (v != null) _onCode(v);
-                  },
-                  errorBuilder: (context, error) => const Center(
-                    child: Text('Caméra indisponible.\nSaisissez le numéro du ticket.',
-                        textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
+      body: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (widget.scannerBuilder != null)
+                  widget.scannerBuilder!(_onCode)
+                else if (!hasMobileCamera)
+                  _DesktopScanInput(onCode: _onCode, enabled: _result == null && !_busy)
+                else
+                  MobileScanner(
+                    controller: _controller,
+                    onDetect: (capture) {
+                      final v = capture.barcodes.firstOrNull?.rawValue;
+                      if (v != null) _onCode(v);
+                    },
+                    errorBuilder: (context, error) => const Center(
+                      child: Text(
+                        'Caméra indisponible.\nSaisissez le numéro du ticket.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
                   ),
-                ),
-            IgnorePointer(
-              child: Center(
-                child: Container(
-                  width: 220,
-                  height: 220,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: ParkColors.amber, width: 3),
-                    borderRadius: BorderRadius.circular(16),
+                if (hasMobileCamera || widget.scannerBuilder != null)
+                  IgnorePointer(
+                    child: Center(
+                      child: Container(
+                        width: 220,
+                        height: 220,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: ParkColors.amber, width: 3),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                if (_busy) const Center(child: CircularProgressIndicator(color: Colors.white)),
+              ],
             ),
-            if (_busy) const Center(child: CircularProgressIndicator(color: Colors.white)),
-          ]),
-        ),
-        if (_result != null) _resultPanel(_result!),
-        if (_result == null)
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('Placez le QR code du ticket dans le cadre',
-                style: TextStyle(color: Colors.white70)),
           ),
-      ]),
+          if (_result != null) _resultPanel(_result!),
+          if (_result == null)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Placez le QR code du ticket dans le cadre', style: TextStyle(color: Colors.white70)),
+            ),
+        ],
+      ),
     );
   }
 
@@ -239,8 +247,7 @@ class _TicketScanScreenState extends State<TicketScanScreen> {
     final s = r.session;
     final (color, icon, title) = switch (r.status) {
       ScanStatus.inside => (ParkColors.green, Icons.local_parking, 'Au parking'),
-      ScanStatus.alreadyExited when _exitDone != null =>
-        (ParkColors.green, Icons.check_circle, 'Sortie validée'),
+      ScanStatus.alreadyExited when _exitDone != null => (ParkColors.green, Icons.check_circle, 'Sortie validée'),
       ScanStatus.alreadyExited => (ParkColors.red, Icons.block, 'Ticket déjà utilisé'),
       ScanStatus.plateMismatch => (ParkColors.red, Icons.warning_amber, 'Plaque différente !'),
       ScanStatus.notFound => (ParkColors.warn, Icons.help_outline, 'Ticket inconnu sur ce téléphone'),
@@ -252,84 +259,182 @@ class _TicketScanScreenState extends State<TicketScanScreen> {
       width: double.infinity,
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(title, key: const Key('scan-title'),
-                style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 16)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  key: const Key('scan-title'),
+                  style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 16),
+                ),
+              ),
+              if (qr != null) Text(qr.ticketNumber, style: const TextStyle(color: ParkColors.muted, fontSize: 13)),
+            ],
           ),
-          if (qr != null)
-            Text(qr.ticketNumber, style: const TextStyle(color: ParkColors.muted, fontSize: 13)),
-        ]),
-        if (qr?.kind == TicketKind.casque)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text('Ticket casque n° ${qr!.helmetIndex ?? ''} — rendre le casque',
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-          ),
-        if (s != null) ...[
-          const SizedBox(height: 10),
-          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            Icon(s.vehicleType.icon, color: ParkColors.navy),
-            const SizedBox(width: 8),
-            Text(s.vehicleType.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-            const Spacer(),
-            if (s.hasPlate) PlateBadge(s.licensePlate, key: const Key('scan-plate'), size: 18)
-            else const Text('Sans plaque', style: TextStyle(color: ParkColors.muted)),
-          ]),
-          if (r.status == ScanStatus.plateMismatch)
+          if (qr?.kind == TicketKind.casque)
             Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text('Le QR indique « ${qr!.plate} ». Vérifiez le véhicule.',
-                  style: const TextStyle(color: ParkColors.red)),
-            ),
-          const SizedBox(height: 10),
-          _info('Entrée', formatDateTime(s.enteredAt)),
-          if (s.exitedAt != null) _info('Sortie', formatDateTime(s.exitedAt!)),
-          _info('Durée', formatDuration((s.exitedAt ?? widget.service.clock()).difference(s.enteredAt))),
-          if (s.helmetCount > 0) _info('Casques', '${s.helmetCount}'),
-          _info('Payé', '${s.total} ${widget.currency}'),
-        ] else if (qr != null && r.status == ScanStatus.notFound) ...[
-          const SizedBox(height: 8),
-          if (qr.plate.isNotEmpty) _info('Plaque (QR)', qr.plate),
-          if (qr.enteredAt != null) _info('Entrée (QR)', formatDateTime(qr.enteredAt!)),
-          const Text('Ce ticket a peut-être été émis par un autre téléphone.',
-              style: TextStyle(color: ParkColors.muted, fontSize: 12)),
-        ],
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(
-            child: OutlinedButton(
-              key: const Key('scan-next'),
-              onPressed: _next,
-              child: const Text('Suivant'),
-            ),
-          ),
-          if (r.status == ScanStatus.inside) ...[
-            const SizedBox(width: 10),
-            Expanded(
-              flex: 2,
-              child: FilledButton.icon(
-                key: const Key('validate-exit'),
-                style: FilledButton.styleFrom(backgroundColor: ParkColors.green),
-                onPressed: _busy ? null : _validate,
-                icon: const Icon(Icons.logout, size: 18),
-                label: const Text('Valider la sortie'),
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Ticket casque n° ${qr!.helmetIndex ?? ''} — rendre le casque',
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
+          if (s != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(s.vehicleType.icon, color: ParkColors.navy),
+                const SizedBox(width: 8),
+                Text(s.vehicleType.label, style: const TextStyle(fontWeight: FontWeight.w700)),
+                const Spacer(),
+                if (s.hasPlate)
+                  PlateBadge(s.licensePlate, key: const Key('scan-plate'), size: 18)
+                else
+                  const Text('Sans plaque', style: TextStyle(color: ParkColors.muted)),
+              ],
+            ),
+            if (r.status == ScanStatus.plateMismatch)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Le QR indique « ${qr!.plate} ». Vérifiez le véhicule.',
+                  style: const TextStyle(color: ParkColors.red),
+                ),
+              ),
+            const SizedBox(height: 10),
+            _info('Entrée', formatDateTime(s.enteredAt)),
+            if (s.exitedAt != null) _info('Sortie', formatDateTime(s.exitedAt!)),
+            _info('Durée', formatDuration((s.exitedAt ?? widget.service.clock()).difference(s.enteredAt))),
+            if (s.helmetCount > 0) _info('Casques', '${s.helmetCount}'),
+            _info('Payé', '${s.total} ${widget.currency}'),
+          ] else if (qr != null && r.status == ScanStatus.notFound) ...[
+            const SizedBox(height: 8),
+            if (qr.plate.isNotEmpty) _info('Plaque (QR)', qr.plate),
+            if (qr.enteredAt != null) _info('Entrée (QR)', formatDateTime(qr.enteredAt!)),
+            const Text(
+              'Ce ticket a peut-être été émis par un autre téléphone.',
+              style: TextStyle(color: ParkColors.muted, fontSize: 12),
+            ),
           ],
-        ]),
-      ]),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(key: const Key('scan-next'), onPressed: _next, child: const Text('Suivant')),
+              ),
+              if (r.status == ScanStatus.inside) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    key: const Key('validate-exit'),
+                    style: FilledButton.styleFrom(backgroundColor: ParkColors.green),
+                    onPressed: _busy ? null : _validate,
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Valider la sortie'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   Widget _info(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(children: [
-          SizedBox(width: 90, child: Text(label, style: const TextStyle(color: ParkColors.muted))),
-          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600))),
-        ]),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 90,
+          child: Text(label, style: const TextStyle(color: ParkColors.muted)),
+        ),
+        Expanded(
+          child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+        ),
+      ],
+    ),
+  );
+}
+
+/// PC : lecture par douchette USB (le lecteur « tape » le contenu du QR suivi
+/// de Entrée) ou saisie du n° de ticket au clavier.
+class _DesktopScanInput extends StatefulWidget {
+  const _DesktopScanInput({required this.onCode, required this.enabled});
+  final ValueChanged<String> onCode;
+  final bool enabled;
+
+  @override
+  State<_DesktopScanInput> createState() => _DesktopScanInputState();
+}
+
+class _DesktopScanInputState extends State<_DesktopScanInput> {
+  final _ctrl = TextEditingController();
+  final _focus = FocusNode();
+
+  @override
+  void didUpdateWidget(covariant _DesktopScanInput old) {
+    super.didUpdateWidget(old);
+    // Prêt pour le ticket suivant dès que le résultat est fermé.
+    if (widget.enabled && !old.enabled) {
+      _ctrl.clear();
+      _focus.requestFocus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: const BoxDecoration(gradient: ParkColors.headerGradient),
+    alignment: Alignment.center,
+    padding: const EdgeInsets.all(24),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.qr_code_scanner, color: ParkColors.amber, size: 64),
+          const SizedBox(height: 14),
+          const Text(
+            'Scannez le ticket avec la douchette',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          const Text('ou tapez son numéro puis Entrée', style: TextStyle(color: Colors.white70)),
+          const SizedBox(height: 18),
+          TextField(
+            key: const Key('desktop-scan-field'),
+            controller: _ctrl,
+            focusNode: _focus,
+            autofocus: true,
+            enabled: widget.enabled,
+            textCapitalization: TextCapitalization.characters,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.confirmation_number_outlined),
+              hintText: 'PCA-000125',
+            ),
+            onSubmitted: (v) {
+              if (v.trim().isNotEmpty) widget.onCode(v.trim());
+            },
+          ),
+        ],
+      ),
+    ),
+  );
 }

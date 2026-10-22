@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../core/licence.dart';
+import '../core/platform.dart';
 import 'app_controller.dart';
 import 'parkfaso_theme.dart';
 
@@ -115,14 +116,16 @@ class _LicenceEntryScreenState extends State<LicenceEntryScreen> {
         ),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _busy ? null : _scan,
-              icon: const Icon(Icons.qr_code_scanner, size: 20),
-              label: const Text('Scanner'),
+          if (hasMobileCamera) ...[
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _scan,
+                icon: const Icon(Icons.qr_code_scanner, size: 20),
+                label: const Text('Scanner'),
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
+            const SizedBox(width: 10),
+          ],
           Expanded(
             flex: 2,
             child: FilledButton.icon(

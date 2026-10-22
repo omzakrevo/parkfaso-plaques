@@ -1,7 +1,8 @@
-name: APK Android
+name: APK Android et EXE Windows
 
-# Compile l'APK à chaque modification de main (ou à la demande depuis l'onglet
-# Actions), puis le publie dans la Release « derniere-version ».
+# À chaque modification de main (ou à la demande depuis l'onglet Actions) :
+# compile l'APK Android et l'application Windows, puis publie le tout dans la
+# Release « derniere-version ». Rien n'est publié si un test échoue.
 on:
   push:
     branches: [main]
@@ -11,11 +12,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: apk-android
+  group: build-parkfaso
   cancel-in-progress: true
 
+env:
+  FLUTTER_VERSION: 3.47.7
+
 jobs:
-  build:
+  android:
+    name: APK Android
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -29,7 +34,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.7
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Dépendances
@@ -42,10 +47,10 @@ jobs:
         run: flutter test
 
       - name: APK universel (tous les téléphones)
-        run: flutter build apk --release --build-number=${{ github.run_number }}
+        run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
 
       - name: APK légers (par processeur)
-        run: flutter build apk --release --split-per-abi --build-number=${{ github.run_number }}
+        run: flutter build apk --release --split-per-abi --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
 
       - name: Renommer les APK
         run: |
@@ -55,30 +60,104 @@ jobs:
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/PARKFASO-arm32.apk
           ls -lh dist
 
-      - name: Garder les APK (onglet Actions)
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: PARKFASO-apk-${{ github.run_number }}
+          name: android
           path: dist/*.apk
           retention-days: 30
+
+  windows:
+    name: EXE Windows
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Dépendances
+        run: flutter pub get
+
+      - name: Tests sous Windows (impression, base de données)
+        run: flutter test test/windows_printer_test.dart test/core_test.dart
+
+      - name: Compilation Windows
+        run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+
+      - name: Ajouter les bibliothèques Visual C++ (PC sans Visual C++ installé)
+        shell: pwsh
+        run: |
+          $out = "build\windows\x64\runner\Release"
+          foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") {
+            Copy-Item "$env:WINDIR\System32\$dll" $out -Force
+          }
+          Get-ChildItem $out | Format-Table Name, Length
+
+      - name: Version portable (ZIP)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $tmp = "PARKFASO-Windows"
+          Copy-Item "build\windows\x64\runner\Release" $tmp -Recurse
+          Compress-Archive -Path $tmp -DestinationPath "dist\PARKFASO-Windows-portable.zip" -Force
+
+      - name: Installateur (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc "/DAppVersion=1.0.${{ github.run_number }}" "windows\installer\parkfaso.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/PARKFASO-Setup.exe
+            dist/PARKFASO-Windows-portable.zip
+          retention-days: 30
+
+  release:
+    name: Publication
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Fichiers publiés
+        run: ls -lh dist
 
       - name: Publier dans la Release « derniere-version »
         uses: softprops/action-gh-release@v2
         with:
           tag_name: derniere-version
-          name: PARKFASO — dernière version (build ${{ github.run_number }})
+          name: PARKFASO — version 1.0.${{ github.run_number }}
           make_latest: true
           prerelease: false
           body: |
-            APK compilé automatiquement depuis le commit ${{ github.sha }}.
+            Compilé automatiquement depuis le commit ${{ github.sha }}.
 
-            - **PARKFASO.apk** : universel, fonctionne sur tous les téléphones Android (recommandé).
-            - **PARKFASO-arm64.apk** : plus léger, téléphones récents (64 bits).
-            - **PARKFASO-arm32.apk** : plus léger, téléphones 32 bits.
+            **Téléphone Android**
+            - **PARKFASO.apk** : universel, tous les téléphones (recommandé).
+            - **PARKFASO-arm64.apk** / **PARKFASO-arm32.apk** : plus légers.
 
-            Installation : téléchargez l'APK sur le téléphone, ouvrez-le, autorisez
-            « Installer des applications inconnues » si Android le demande.
-          files: dist/*.apk
+            **PC Windows 10 / 11 (64 bits)**
+            - **PARKFASO-Setup.exe** : installateur (raccourci Bureau et menu Démarrer).
+            - **PARKFASO-Windows-portable.zip** : sans installation, décompresser puis lancer PARKFASO.exe.
+
+            Sur PC : saisie de la plaque au clavier, scan des tickets avec une douchette USB,
+            impression sur une imprimante thermique installée dans Windows ou un port COM Bluetooth.
+          files: dist/*
 
       - name: Déplacer l'étiquette sur ce commit
         run: |

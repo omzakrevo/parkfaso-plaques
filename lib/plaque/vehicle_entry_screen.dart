@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 
 import '../app/parkfaso_theme.dart';
+import '../core/platform.dart';
 import '../tickets/tickets.dart';
 import 'plate_camera_source.dart';
 import 'plate_capture_screen.dart';
@@ -59,6 +60,9 @@ class _VehicleEntryScreenState extends State<VehicleEntryScreen> {
   bool _printHelmets = true;
 
   VehicleType get type => widget.vehicleType;
+
+  /// Lecture de plaque par caméra : téléphone uniquement (pas sur PC).
+  bool get _canPhoto => hasMobileCamera || widget.cameraFactory != null;
   ParkingSettings get s => widget.settings;
   int get _helmetCount => _helmets ?? 0;
   int get _total => s.priceOf(type) + s.helmetPrice * _helmetCount;
@@ -158,8 +162,7 @@ class _VehicleEntryScreenState extends State<VehicleEntryScreen> {
 
   /// Phase 2 : ticket véhicule / casques, si le gardien le décide.
   Future<void> _printSecondary() async {
-    final docs = TicketBuilder(s).buildSecondary(_saved!,
-        vehicle: _printVehicle, helmets: _printHelmets);
+    final docs = TicketBuilder(s).buildSecondary(_saved!, vehicle: _printVehicle, helmets: _printHelmets);
     if (docs.isEmpty) return _finish();
     setState(() => _busy = true);
     try {
@@ -179,10 +182,8 @@ class _VehicleEntryScreenState extends State<VehicleEntryScreen> {
   }
 
   void _snack(String text, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(text),
-      backgroundColor: error ? ParkColors.red : ParkColors.green,
-    ));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(text), backgroundColor: error ? ParkColors.red : ParkColors.green));
   }
 
   // ---------------------------------------------------------------------------
@@ -196,11 +197,9 @@ class _VehicleEntryScreenState extends State<VehicleEntryScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Row(children: [
-            Icon(type.icon, size: 22),
-            const SizedBox(width: 8),
-            Text('Entrée ${type.label.toLowerCase()}'),
-          ]),
+          title: Row(
+            children: [Icon(type.icon, size: 22), const SizedBox(width: 8), Text('Entrée ${type.label.toLowerCase()}')],
+          ),
         ),
         body: SafeArea(
           child: AnimatedSwitcher(
@@ -213,213 +212,258 @@ class _VehicleEntryScreenState extends State<VehicleEntryScreen> {
   }
 
   Widget _form() {
-    return Column(key: const ValueKey('form'), children: [
-      Expanded(
-        child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 8), children: [
-          if (type.hasHelmet) ...[
-            const SectionLabel('Casques déposés'),
-            SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<int>(
-                key: const Key('helmet-choice'),
-                emptySelectionAllowed: true,
-                showSelectedIcon: false,
-                segments: [
-                  const ButtonSegment(value: 0, label: Text('Aucun', key: Key('helmet-0'))),
-                  for (var i = 1; i <= s.maxHelmets; i++)
-                    ButtonSegment(value: i, label: Text('$i', key: Key('helmet-$i'))),
-                ],
-                selected: {if (_helmets != null) _helmets!},
-                onSelectionChanged: (v) => setState(() {
-                  _helmets = v.isEmpty ? null : v.first;
-                  _error = null;
-                }),
-              ),
-            ),
-            const SizedBox(height: 18),
-          ],
-          if (type.hasPlate) ...[
-            SectionLabel(s.allowEmptyPlate ? 'Immatriculation · facultatif' : 'Immatriculation'),
-            Row(children: [
-              Expanded(
-                child: TextField(
-                  key: const Key('plate-field'),
-                  controller: _plateCtrl,
-                  textCapitalization: TextCapitalization.characters,
-                  inputFormatters: [UpperCaseTextFormatter()],
-                  onChanged: (_) => setState(() => _error = null),
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 1.5),
-                  decoration: InputDecoration(
-                    hintText: '11 AB 2345',
-                    suffixIcon: _method == PlateCaptureMethod.ocr
-                        ? const Icon(Icons.verified, color: ParkColors.green, size: 20)
-                        : null,
+    return Column(
+      key: const ValueKey('form'),
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            children: [
+              if (type.hasHelmet) ...[
+                const SectionLabel('Casques déposés'),
+                SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<int>(
+                    key: const Key('helmet-choice'),
+                    emptySelectionAllowed: true,
+                    showSelectedIcon: false,
+                    segments: [
+                      const ButtonSegment(value: 0, label: Text('Aucun', key: Key('helmet-0'))),
+                      for (var i = 1; i <= s.maxHelmets; i++)
+                        ButtonSegment(
+                          value: i,
+                          label: Text('$i', key: Key('helmet-$i')),
+                        ),
+                    ],
+                    selected: {if (_helmets != null) _helmets!},
+                    onSelectionChanged: (v) => setState(() {
+                      _helmets = v.isEmpty ? null : v.first;
+                      _error = null;
+                    }),
+                  ),
+                ),
+                const SizedBox(height: 18),
+              ],
+              if (type.hasPlate) ...[
+                SectionLabel(s.allowEmptyPlate ? 'Immatriculation · facultatif' : 'Immatriculation'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        key: const Key('plate-field'),
+                        controller: _plateCtrl,
+                        textCapitalization: TextCapitalization.characters,
+                        inputFormatters: [UpperCaseTextFormatter()],
+                        onChanged: (_) => setState(() => _error = null),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 1.5),
+                        decoration: InputDecoration(
+                          hintText: '11 AB 2345',
+                          suffixIcon: _method == PlateCaptureMethod.ocr
+                              ? const Icon(Icons.verified, color: ParkColors.green, size: 20)
+                              : null,
+                        ),
+                      ),
+                    ),
+                    if (_canPhoto) ...[
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        height: 46,
+                        width: 52,
+                        child: FilledButton.tonal(
+                          key: const Key('photo-plate'),
+                          style: FilledButton.styleFrom(padding: EdgeInsets.zero),
+                          onPressed: _busy ? null : _photograph,
+                          child: const Icon(Icons.photo_camera_outlined),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 2),
+                  child: Text(switch (_method) {
+                    PlateCaptureMethod.ocr => 'Lu par la caméra et vérifié',
+                    PlateCaptureMethod.manual => 'Saisi à la main',
+                    PlateCaptureMethod.none =>
+                      _canPhoto ? 'Touchez l\'appareil photo pour lire la plaque' : 'Tapez le numéro, ex. 11AB2345',
+                  }, style: const TextStyle(fontSize: 12, color: ParkColors.muted)),
+                ),
+                const SizedBox(height: 18),
+              ],
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Column(
+                    children: [
+                      _amountRow(type.label, s.priceOf(type)),
+                      if (_helmetCount > 0) _amountRow('Casque × $_helmetCount', s.helmetPrice * _helmetCount),
+                      const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: Divider()),
+                      _amountRow('Total', _total, bold: true, key: const Key('total-amount')),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 46,
-                width: 52,
-                child: FilledButton.tonal(
-                  key: const Key('photo-plate'),
-                  style: FilledButton.styleFrom(padding: EdgeInsets.zero),
-                  onPressed: _busy ? null : _photograph,
-                  child: const Icon(Icons.photo_camera_outlined),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    _error!,
+                    key: const Key('form-error'),
+                    style: const TextStyle(color: ParkColors.red, fontWeight: FontWeight.w600),
+                  ),
                 ),
-              ),
-            ]),
-            Padding(
-              padding: const EdgeInsets.only(top: 4, left: 2),
-              child: Text(
-                switch (_method) {
-                  PlateCaptureMethod.ocr => 'Lu par la caméra et vérifié',
-                  PlateCaptureMethod.manual => 'Saisi à la main',
-                  PlateCaptureMethod.none => 'Touchez l\'appareil photo pour lire la plaque',
-                },
-                style: const TextStyle(fontSize: 12, color: ParkColors.muted),
-              ),
-            ),
-            const SizedBox(height: 18),
-          ],
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Column(children: [
-                _amountRow(type.label, s.priceOf(type)),
-                if (_helmetCount > 0) _amountRow('Casque × $_helmetCount', s.helmetPrice * _helmetCount),
-                const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: Divider()),
-                _amountRow('Total', _total, bold: true, key: const Key('total-amount')),
-              ]),
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(_error!, key: const Key('form-error'),
-                  style: const TextStyle(color: ParkColors.red, fontWeight: FontWeight.w600)),
-            ),
-        ]),
-      ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            key: const Key('save-print'),
-            style: FilledButton.styleFrom(backgroundColor: ParkColors.green),
-            onPressed: _busy ? null : _save,
-            icon: _busy
-                ? const SizedBox(width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                : const Icon(Icons.print_outlined, size: 20),
-            label: const Text('Enregistrer · ticket client'),
+            ],
           ),
         ),
-      ),
-    ]);
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const Key('save-print'),
+              style: FilledButton.styleFrom(backgroundColor: ParkColors.green),
+              onPressed: _busy ? null : _save,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                    )
+                  : const Icon(Icons.print_outlined, size: 20),
+              label: const Text('Enregistrer · ticket client'),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _phaseTwo() {
     final saved = _saved!;
     final vehicleLabel = type.label.toLowerCase();
-    return Column(key: const ValueKey('phase2'), children: [
-      Expanded(
-        child: ListView(padding: const EdgeInsets.all(16), children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(children: [
-                Icon(_clientPrinted ? Icons.check_circle : Icons.error_outline,
-                    color: _clientPrinted ? ParkColors.green : ParkColors.red, size: 28),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(_clientPrinted ? 'Ticket client imprimé' : 'Ticket client non imprimé',
-                        key: const Key('client-status'),
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                    Text('${saved.ticketBase}-C · ${saved.total} ${s.currency}',
-                        style: const TextStyle(color: ParkColors.muted, fontSize: 13)),
-                  ]),
+    return Column(
+      key: const ValueKey('phase2'),
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _clientPrinted ? Icons.check_circle : Icons.error_outline,
+                        color: _clientPrinted ? ParkColors.green : ParkColors.red,
+                        size: 28,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _clientPrinted ? 'Ticket client imprimé' : 'Ticket client non imprimé',
+                              key: const Key('client-status'),
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                            ),
+                            Text(
+                              '${saved.ticketBase}-C · ${saved.total} ${s.currency}',
+                              style: const TextStyle(color: ParkColors.muted, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (saved.hasPlate) PlateBadge(saved.licensePlate, size: 14),
+                    ],
+                  ),
                 ),
-                if (saved.hasPlate) PlateBadge(saved.licensePlate, size: 14),
-              ]),
-            ),
-          ),
-          if (!_clientPrinted)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: OutlinedButton.icon(
-                key: const Key('reprint-client'),
-                onPressed: _busy ? null : _printClient,
-                icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('Réimprimer le ticket client'),
               ),
-            ),
-          const SizedBox(height: 18),
-          const SectionLabel('Autres tickets'),
-          Card(
-            child: Column(children: [
-              CheckboxListTile(
-                key: const Key('opt-vehicle'),
-                dense: true,
-                value: _printVehicle,
-                onChanged: (v) => setState(() => _printVehicle = v ?? false),
-                title: Text('Ticket $vehicleLabel'),
-                subtitle: Text('À laisser sur ${type.withArticle} · ${saved.ticketBase}-${type.ticketSuffix}'),
-              ),
-              if (saved.helmetCount > 0) ...[
-                const Divider(),
-                CheckboxListTile(
-                  key: const Key('opt-helmets'),
-                  dense: true,
-                  value: _printHelmets,
-                  onChanged: (v) => setState(() => _printHelmets = v ?? false),
-                  title: Text('Ticket${saved.helmetCount > 1 ? 's' : ''} casque × ${saved.helmetCount}'),
-                  subtitle: const Text('À fixer sur chaque casque'),
+              if (!_clientPrinted)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: OutlinedButton.icon(
+                    key: const Key('reprint-client'),
+                    onPressed: _busy ? null : _printClient,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Réimprimer le ticket client'),
+                  ),
                 ),
-              ],
-            ]),
+              const SizedBox(height: 18),
+              const SectionLabel('Autres tickets'),
+              Card(
+                child: Column(
+                  children: [
+                    CheckboxListTile(
+                      key: const Key('opt-vehicle'),
+                      dense: true,
+                      value: _printVehicle,
+                      onChanged: (v) => setState(() => _printVehicle = v ?? false),
+                      title: Text('Ticket $vehicleLabel'),
+                      subtitle: Text('À laisser sur ${type.withArticle} · ${saved.ticketBase}-${type.ticketSuffix}'),
+                    ),
+                    if (saved.helmetCount > 0) ...[
+                      const Divider(),
+                      CheckboxListTile(
+                        key: const Key('opt-helmets'),
+                        dense: true,
+                        value: _printHelmets,
+                        onChanged: (v) => setState(() => _printHelmets = v ?? false),
+                        title: Text('Ticket${saved.helmetCount > 1 ? 's' : ''} casque × ${saved.helmetCount}'),
+                        subtitle: const Text('À fixer sur chaque casque'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-        ]),
-      ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-        child: Row(children: [
-          Expanded(
-            child: OutlinedButton(
-              key: const Key('finish-no-print'),
-              onPressed: _busy ? null : () => _finish(),
-              child: const Text('Terminer'),
-            ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  key: const Key('finish-no-print'),
+                  onPressed: _busy ? null : () => _finish(),
+                  child: const Text('Terminer'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: FilledButton.icon(
+                  key: const Key('print-secondary'),
+                  onPressed: _busy || (!_printVehicle && !(_printHelmets && saved.helmetCount > 0))
+                      ? null
+                      : _printSecondary,
+                  icon: const Icon(Icons.print_outlined, size: 20),
+                  label: const Text('Imprimer'),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            flex: 2,
-            child: FilledButton.icon(
-              key: const Key('print-secondary'),
-              onPressed: _busy || (!_printVehicle && !(_printHelmets && saved.helmetCount > 0))
-                  ? null
-                  : _printSecondary,
-              icon: const Icon(Icons.print_outlined, size: 20),
-              label: const Text('Imprimer'),
-            ),
-          ),
-        ]),
-      ),
-    ]);
+        ),
+      ],
+    );
   }
 
   Widget _amountRow(String label, int value, {bool bold = false, Key? key}) {
-    final style = TextStyle(fontSize: bold ? 17 : 14,
-        fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
-        color: bold ? ParkColors.navy : Colors.black87);
+    final style = TextStyle(
+      fontSize: bold ? 17 : 14,
+      fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
+      color: bold ? ParkColors.navy : Colors.black87,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(children: [
-        Expanded(child: Text(label, style: style)),
-        Text(value == 0 && !bold ? 'Gratuit' : '$value ${s.currency}', key: key, style: style),
-      ]),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: style)),
+          Text(value == 0 && !bold ? 'Gratuit' : '$value ${s.currency}', key: key, style: style),
+        ],
+      ),
     );
   }
 }

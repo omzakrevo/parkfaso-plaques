@@ -9,7 +9,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' show databaseFactoryFfi, sqfliteFfiInit;
 
 import 'app/app_controller.dart';
 import 'app/login_screen.dart';
@@ -20,6 +22,7 @@ import 'core/auth.dart';
 import 'core/github_sync.dart';
 import 'core/licence.dart';
 import 'core/park_store.dart';
+import 'core/platform.dart';
 import 'plaque/plate_ocr_service.dart';
 import 'plaque/plate_photo_store.dart';
 import 'tickets/bluetooth_printer.dart';
@@ -46,11 +49,34 @@ class ParkfasoApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: buildParkTheme(),
         home: home,
+        builder: (context, child) => LayoutBuilder(
+          builder: (context, box) => box.maxWidth <= 720
+              ? child!
+              : ColoredBox(
+                  color: ParkColors.navyDark,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 560),
+                      child: ClipRect(child: child),
+                    ),
+                  ),
+                ),
+        ),
       );
 }
 
 Future<AppController> initServices() async {
-  final db = await openParkDatabase(p.join(await getDatabasesPath(), 'parkfaso.db'));
+  final Database db;
+  if (isDesktop) {
+    // PC : SQLite « bureau », base dans %APPDATA% (dossier inscriptible même si
+    // l'application est installée dans Program Files).
+    sqfliteFfiInit();
+    final dir = await getApplicationSupportDirectory();
+    await dir.create(recursive: true);
+    db = await openParkDatabase(p.join(dir.path, 'parkfaso.db'), factory: databaseFactoryFfi);
+  } else {
+    db = await openParkDatabase(p.join(await getDatabasesPath(), 'parkfaso.db'));
+  }
   final store = ParkStore(db);
   final photoStore = PlatePhotoStore(keepPhotos: false, retentionDays: 7);
   unawaited(photoStore.purgeExpired().catchError((_) => 0));
