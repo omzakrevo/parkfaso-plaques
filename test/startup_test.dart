@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parkfaso_plaque/app/app_controller.dart';
 import 'package:parkfaso_plaque/main.dart';
